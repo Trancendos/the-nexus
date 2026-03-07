@@ -132,6 +132,64 @@ export function createServer(): express.Application {
 
   app.get('/api/v1/stats', (_req, res) => res.json(integrationHub.getStats()));
 
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 2060 SMART RESILIENCE LAYER — Auto-wired by Trancendos Compliance Engine
+// ═══════════════════════════════════════════════════════════════════════════════
+import {
+  SmartTelemetry,
+  SmartEventBus,
+  SmartCircuitBreaker,
+  telemetryMiddleware,
+  adaptiveRateLimitMiddleware,
+  createHealthEndpoint,
+  setupGracefulShutdown,
+} from '../middleware/resilience-layer';
+
+// Initialize 2060 singletons
+const telemetry2060 = SmartTelemetry.getInstance();
+const eventBus2060 = SmartEventBus.getInstance();
+const circuitBreaker2060 = new SmartCircuitBreaker(`${SERVICE_ID}-primary`, {
+  failureThreshold: 5,
+  resetTimeoutMs: 30000,
+  halfOpenMaxAttempts: 3,
+});
+
+// Wire telemetry middleware (request tracking + trace propagation)
+app.use(telemetryMiddleware);
+
+// Wire adaptive rate limiting (IAM-level aware)
+app.use(adaptiveRateLimitMiddleware);
+
+// 2060 Enhanced health endpoint with resilience status
+app.get('/health/2060', createHealthEndpoint({
+  serviceName: SERVICE_ID,
+  meshAddress: MESH_ADDRESS,
+  getCustomHealth: () => ({
+    circuitBreaker: circuitBreaker2060.getState(),
+    eventBusListeners: eventBus2060.listenerCount(),
+    telemetryMetrics: telemetry2060.getMetricNames().length,
+  }),
+}));
+
+// Prometheus text format metrics export
+app.get('/metrics/prometheus', (_req: any, res: any) => {
+  res.setHeader('Content-Type', 'text/plain; version=0.0.4; charset=utf-8');
+  res.send(telemetry2060.exportPrometheus());
+});
+
+// Emit service lifecycle events
+eventBus2060.emit('service.2060.wired', {
+  serviceId: SERVICE_ID,
+  meshAddress: MESH_ADDRESS,
+  timestamp: new Date().toISOString(),
+  features: ['telemetry', 'rate-limiting', 'circuit-breaker', 'event-bus', 'prometheus-export'],
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// END 2060 SMART RESILIENCE LAYER
+// ═══════════════════════════════════════════════════════════════════════════════
+
   app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => { logger.error({ err }, 'Unhandled error'); res.status(500).json({ error: err.message }); });
   app.use((_req, res) => res.status(404).json({ error: 'Not found' }));
   return app;
